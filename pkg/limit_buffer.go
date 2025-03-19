@@ -2,13 +2,17 @@ package buffer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 )
 
 type ChannelBuffer[T any] struct {
 	pool          Pool[T]
 	bufferChannel chan *T
 	inputBuffer   chan *T
+	closed        bool
+	mux           sync.RWMutex
 	ctx           context.Context
 }
 
@@ -17,6 +21,7 @@ func CreateChannelBuffer[T any](ctx context.Context, size int, pool Pool[T]) *Ch
 		pool:          pool,
 		bufferChannel: make(chan *T, size),
 		inputBuffer:   make(chan *T),
+		closed:        false,
 		ctx:           ctx,
 	}
 	go buffer.loop()
@@ -24,6 +29,12 @@ func CreateChannelBuffer[T any](ctx context.Context, size int, pool Pool[T]) *Ch
 }
 
 func (buffer *ChannelBuffer[T]) Push(ctx context.Context, element *T) error {
+	buffer.mux.RLock()
+	defer buffer.mux.RUnlock()
+
+	if buffer.closed {
+		return errors.New("buffer closed")
+	}
 	select {
 	case buffer.inputBuffer <- element:
 		// WARN: LACKS CHECKS FOR CLOSED CHANNEL
@@ -34,6 +45,12 @@ func (buffer *ChannelBuffer[T]) Push(ctx context.Context, element *T) error {
 }
 
 func (buffer *ChannelBuffer[T]) Pop(ctx context.Context) (*T, error) {
+	buffer.mux.RLock()
+	defer buffer.mux.RUnlock()
+
+	if buffer.closed {
+		return nil, errors.New("buffer closed")
+	}
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -98,6 +115,10 @@ loop:
 }
 
 func (buffer *ChannelBuffer[T]) close() {
+	buffer.mux.Lock()
+	buffer.closed = true
+	buffer.mux.Unlock()
+
 loop:
 	for {
 		select {
