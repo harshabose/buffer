@@ -20,7 +20,7 @@ func CreateChannelBuffer[T any](ctx context.Context, size int, pool Pool[T]) *Ch
 	buffer := &ChannelBuffer[T]{
 		pool:          pool,
 		bufferChannel: make(chan *T, size),
-		inputBuffer:   make(chan *T),
+		inputBuffer:   make(chan *T, size),
 		closed:        false,
 		ctx:           ctx,
 	}
